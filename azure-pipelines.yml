@@ -1,58 +1,26 @@
-trigger:
-  - main
-
-pool:
-  name: 'Default'  # Uses your self-hosted agent on the VM
-
-variables:
-  buildConfiguration: 'Release'
-  bluePath: 'C:\inetpub\wwwroot\TheWolfDen-Blue'
-  greenPath: 'C:\inetpub\wwwroot\TheWolfDen-Green'
-
 stages:
 - stage: Build
   displayName: 'Build & Package App'
   jobs:
   - job: BuildJob
+    pool:
+      name: 'Default' # Uses your wolfweb1 agent
     steps:
+    # 1. Ensure .NET SDK is present on the agent
     - task: UseDotNet@2
+      displayName: 'Install .NET 8 SDK'
       inputs:
         packageType: 'sdk'
         version: '8.x'
 
-    - script: dotnet publish --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/publish
+    # 2. Explicitly restore NuGet packages
+    - script: dotnet restore
+      displayName: 'Restore NuGet Packages'
+
+    # 3. Publish the application specifying the solution/csproj file
+    - script: dotnet publish --configuration Release --output $(Build.ArtifactStagingDirectory)/publish
       displayName: 'Publish .NET Web Application'
 
+    # 4. Publish artifact for deployment
     - publish: $(Build.ArtifactStagingDirectory)/publish
       artifact: drop
-
-- stage: Deploy
-  displayName: 'Deploy to IIS (Blue Slot)'
-  dependsOn: Build
-  jobs:
-  - deployment: DeployBlue
-    environment: 'Production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - download: current
-            artifact: drop
-
-          - powershell: |
-              Import-Module WebAdministration
-              
-              # 1. Stop Blue Site before updating files
-              Stop-Website -Name "TheWolfDen-Blue" -ErrorAction SilentlyContinue
-              
-              # 2. Deploy compiled files to Blue directory
-              Copy-Item -Path "$(Pipeline.Workspace)/drop/*" -Destination "$(bluePath)" -Recurse -Force
-              
-              # 3. Start Blue Site
-              Start-Website -Name "TheWolfDen-Blue"
-              
-              # 4. Point Live site (Port 80) to Blue physical path
-              Set-ItemProperty "IIS:\Sites\TheWolfDen-Live" -Name "physicalPath" -Value "$(bluePath)"
-              
-              Write-Host "Successfully deployed and routed live traffic to Blue slot!"
-            displayName: 'Update Blue Slot & Switch Live Traffic'
