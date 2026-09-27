@@ -1,26 +1,50 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: 'Default' # Runs on your wolfweb1 agent
+
+variables:
+  buildConfiguration: 'Release'
+
 stages:
 - stage: Build
   displayName: 'Build & Package App'
   jobs:
   - job: BuildJob
-    pool:
-      name: 'Default' # Uses your wolfweb1 agent
     steps:
-    # 1. Ensure .NET SDK is present on the agent
+    # Ensures .NET 8 SDK is present and activated on the agent
     - task: UseDotNet@2
-      displayName: 'Install .NET 8 SDK'
+      displayName: 'Use .NET 8 SDK'
       inputs:
         packageType: 'sdk'
         version: '8.x'
 
-    # 2. Explicitly restore NuGet packages
-    - script: dotnet restore
+    # Native restore task (handles project paths & feed auth cleanly)
+    - task: DotNetCoreCLI@2
       displayName: 'Restore NuGet Packages'
+      inputs:
+        command: 'restore'
+        projects: '**/*.csproj'
 
-    # 3. Publish the application specifying the solution/csproj file
-    - script: dotnet publish --configuration Release --output $(Build.ArtifactStagingDirectory)/publish
-      displayName: 'Publish .NET Web Application'
+    # Build solution
+    - task: DotNetCoreCLI@2
+      displayName: 'Build Application'
+      inputs:
+        command: 'build'
+        projects: '**/*.csproj'
+        arguments: '--configuration $(buildConfiguration) --no-restore'
 
-    # 4. Publish artifact for deployment
+    # Publish output artifact
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish Web Application'
+      inputs:
+        command: 'publish'
+        publishWebProjects: true
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/publish'
+        zipAfterPublish: false
+
     - publish: $(Build.ArtifactStagingDirectory)/publish
       artifact: drop
